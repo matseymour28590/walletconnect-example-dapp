@@ -120,6 +120,7 @@ class AssetPurchase extends React.Component<IProps, IState> {
       this.state.sale.our_address,
       this.state.sale.accept_token.index,
       this.state.numAcceptTokens,
+      2000,
     );
 
     const ourTxn = await this.assetTransferTxn(
@@ -127,13 +128,12 @@ class AssetPurchase extends React.Component<IProps, IState> {
       this.props.customer_address,
       this.state.sale.sale_token.index,
       this.state.numSaleTokens,
+      0,
     );
 
     const txnsToSign = [customerTxn, ourTxn];
     algosdk.assignGroupID(txnsToSign);
 
-    // toggle pending request indicator
-    this.setState({ pendingRequest: true });
     const walletTxns: IWalletTransaction[] = [
       // {
       //   txn: AssetPurchase.encodeTxn(optinTxn),
@@ -156,20 +156,19 @@ class AssetPurchase extends React.Component<IProps, IState> {
 
     // sign transaction
     const request = formatJsonRpcRequest("algo_signTxn", [walletTxns]);
-    const signedTxns: number[] = await this.props.connector.sendCustomRequest(request);
-    signedTxns.pop();
+    const signedTxns = await this.props.connector.sendCustomRequest(request);
     console.log(signedTxns);
-    this._callSigningAPI(signedTxns, ourTxn);
+    this._callSigningAPI(signedTxns[0], ourTxn);
   };
 
-  private _callSigningAPI = (signedTxns: number[], unsignedTxn: Transaction) => {
+  private _callSigningAPI = (signedTxn: number[], unsignedTxn: Transaction) => {
     fetch("http://localhost:8000/", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        signedTransactions: signedTxns,
+        signedTransaction: signedTxn,
         unsignedTransaction: unsignedTxn,
       }),
     })
@@ -191,6 +190,17 @@ class AssetPurchase extends React.Component<IProps, IState> {
     // }
   };
 
+  private updateNumAcceptTokens = (numAcceptTokens: number) => {
+    if (!this.state.sale) {
+      return;
+    }
+
+    this.setState({
+      numAcceptTokens,
+      numSaleTokens: numAcceptTokens / this.state.sale.accept_units,
+    });
+  };
+
   private getSalesParams = () => {
     fetch("https://tokensales-staging.s3.eu-west-2.amazonaws.com/SproutCoin-52674863.json", {
       method: "GET",
@@ -209,33 +219,29 @@ class AssetPurchase extends React.Component<IProps, IState> {
     });
   };
 
-  private updateNumAcceptTokens = (numAcceptTokens: number) => {
-    if (!this.state.sale) {
-      return;
-    }
-
-    this.setState({
-      numAcceptTokens,
-      numSaleTokens: numAcceptTokens / this.state.sale.accept_units,
-    });
-  };
-
+  // TODO: Charge all the fee to the customer
   private assetTransferTxn = async (
     address_from: string,
     address_to: string,
     assetIndex: number,
     amount: number,
+    fee: number,
   ) => {
     // @ts-ignore
-
-    const suggestedParams = await apiGetTxnParams(this.state.sale.chain);
-    return algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-      from: address_from,
-      to: address_to,
+    const params = await apiGetTxnParams(this.state.sale.chain);
+    params.fee = fee;
+    params.flatFee = true;
+    console.log(amount);
+    return algosdk.makeAssetTransferTxnWithSuggestedParams(
+      address_from,
+      address_to,
+      undefined,
+      undefined,
       amount,
+      undefined,
       assetIndex,
-      suggestedParams,
-    });
+      params,
+    );
   };
 }
 
